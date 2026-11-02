@@ -54,6 +54,9 @@ cd seditmemo
 関数名などの記号はビルドのとき落として、実行ファイルを 3 割ほど小さくしてる（動きは同じ）。残したいときは `NO_STRIP=1 ./build.sh`。
 速さより大きさを優先した最適化にするなら `SWIFT_OPT=-Osize ./build.sh`（ふつうは -O）。
 
+ほかの Mac に渡すときは `NOTARIZE=1 ./build.sh`。Developer ID で署名して Apple の公証を通すので、渡した先でも「開発元が未確認」と出ずに開ける。
+Apple Developer Program の登録と、最初に 1 回だけの準備（証明書とパスワード）が要る。やり方は `build.sh` の頭に書いてある。
+
 Intel Mac と Apple シリコンの両方で動くユニバーサル版になる。macOS 10.15 以降（Apple シリコンは 11 以降）。
 
 自分の Mac でビルドしたアプリなので、Gatekeeper の「開発元を確認できません」は出ない。
