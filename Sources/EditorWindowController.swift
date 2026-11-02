@@ -50,6 +50,8 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
 
     /// このウィンドウの見た目（ファイルごとに覚える。新しいウィンドウは初期設定の見た目）
     private(set) var profile = Settings.shared.defaultProfile
+    /// 見た目を自分で変えたか（開いたファイルの見た目を覚えてたときも）。変えてないファイルは保存しても覚えず、初期設定に従う
+    private var hasOwnProfile = false
     /// ズーム（%）は見た目の一部
     private var zoomPercent: Int {
         get { return profile.zoomPercent }
@@ -656,6 +658,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         let clamped = max(EditorWindowController.minZoom, min(EditorWindowController.maxZoom, value))
         guard clamped != zoomPercent else { return }
         zoomPercent = clamped
+        hasOwnProfile = true
         rememberProfile()
         applyFont()
         updateStatusNow()
@@ -715,6 +718,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
             appendedLog = true
         }
 
+        applyProfile(for: url)   // 先に見た目を合わせる（中身を入れてからやと、文字の飾りを 2 回付け直す）
         replaceAllText(with: text)
         discardRecovery()   // 前の文書（保存せずに捨てた）の控えを残さん
         RecentFiles.note(url)
@@ -724,7 +728,6 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         isDirty = appendedLog
         updateTitle()
         applyRememberedFrame(for: url)
-        setProfile(FileProfiles.profile(for: url) ?? Settings.shared.defaultProfile, remember: false)
 
         let caret = appendedLog ? (text as NSString).length : 0
         textView.setSelectedRange(NSRange(location: caret, length: 0))
@@ -859,7 +862,9 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         updateTitle()
         updateStatusNow()
         rememberFrame()
-        rememberProfile()
+        if hasOwnProfile {
+            rememberProfile()
+        }
         RecentFiles.note(url)
         writeRecoveryIfNeeded()   // 保存したので控えを消す
         return true
@@ -934,8 +939,10 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
 
     /// 前回落ちたときの控えから中身を戻す。保存してない状態（*）にして、元のファイルがあればそこへ上書き保存できる
     func restore(_ record: Recovery.Record, id: UUID) {
+        let url = record.path.map { URL(fileURLWithPath: $0) }
+        applyProfile(for: url)
         replaceAllText(with: record.text)
-        fileURL = record.path.map { URL(fileURLWithPath: $0) }
+        fileURL = url
         encoding = TextEncoding(rawValue: record.encoding) ?? .utf8
         lineEnding = LineEnding(rawValue: record.lineEnding) ?? .lf
         recoveryID = id          // 控えはこのウィンドウが引き継ぐ（閉じたら消える）
@@ -948,12 +955,12 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         if let url = fileURL {
             applyRememberedFrame(for: url)
         }
-        setProfile(fileURL.flatMap { FileProfiles.profile(for: $0) } ?? Settings.shared.defaultProfile, remember: false)
     }
 
     /// ［表示］→［すべての設定を消して最初の状態に戻す…］のあと: 全部を設定に合わせ直す。見た目も最初の状態に
     func applyAllSettings() {
         profile = Settings.shared.defaultProfile
+        hasOwnProfile = false
         applyTheme()
         applyWordWrap()
         // 枠の付け外しは、変わるときだけ（変わらんのに呼ぶと、Mac の全画面を抜けてしまう）
@@ -1202,18 +1209,40 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
 
     // MARK: - 見た目（このウィンドウだけ。ファイルごとに覚える）
 
-    /// 見た目を替えて当て直す。remember: 開いた・保存したファイルなら、そのファイルの見た目として覚える
-    func setProfile(_ newProfile: ViewProfile, remember: Bool = true) {
+    /// 見た目を替えて、変わったところだけ当て直す（行番号を出すだけで本文を組み直したり、カーソルへ飛んだりせんように）。
+    /// remember: 自分で変えた見た目。開いた・保存したファイルなら、そのファイルの見た目として覚える
+    private func setProfile(_ newProfile: ViewProfile, remember: Bool) {
         let old = profile
         profile = newProfile.sanitized
-        if profile != old {
+        guard profile != old else { return }
+        if profile.sedit != old.sedit {
             applySeditMode()       // 色・フォント・ズーム・行間・折り返し・上の行と下の欄
             applyRulers()
             applyStatusBarVisibility()
+        } else {
+            if profile.monospace != old.monospace || profile.lineSpacingPercent != old.lineSpacingPercent
+                || profile.zoomPercent != old.zoomPercent {
+                applyFont()
+            }
+            if profile.wordWrap != old.wordWrap {
+                applyWordWrap()
+            }
+            if profile.showLineNumbers != old.showLineNumbers || profile.showColumnRuler != old.showColumnRuler {
+                applyRulers()
+            }
+            updateStatusNow()
         }
         if remember {
+            hasOwnProfile = true
             rememberProfile()
         }
+    }
+
+    /// ファイルを開いたとき・控えから戻したとき: そのファイルの覚えてた見た目、なければ初期設定の見た目
+    private func applyProfile(for url: URL?) {
+        let stored = url.flatMap { FileProfiles.profile(for: $0) }
+        hasOwnProfile = stored != nil
+        setProfile(stored ?? Settings.shared.defaultProfile, remember: false)
     }
 
     /// 開いた・保存したファイルなら、今の見た目を覚える（次にそのファイルを開いたらこの見た目）
@@ -1225,11 +1254,12 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
     private func changeProfile(_ change: (inout ViewProfile) -> Void) {
         var newProfile = profile
         change(&newProfile)
-        setProfile(newProfile)
+        setProfile(newProfile, remember: true)
     }
 
     @objc func toggleSeditMode(_ sender: Any?) {
         changeProfile { $0.sedit.toggle() }
+        syncFontPanel()
     }
 
     @objc func toggleWordWrap(_ sender: Any?) {
@@ -1238,14 +1268,26 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
 
     @objc func toggleMonospaceFont(_ sender: Any?) {
         changeProfile { $0.monospace.toggle() }
-        // フォントパネルが開いてたら表示を合わせる（ずれたままやと、次の変更が違うフォントに掛かる）
+        syncFontPanel()
+    }
+
+    /// フォントパネルに出すフォント。パネルの変更はこれを元に掛けて、アプリ全体のフォントにする。
+    /// SEDIT 風はいつも PC-9800 なので、メモ帳のときのフォント（パネルで変えたら、ほかのメモ帳のウィンドウに効く）
+    var fontPanelFont: NSFont {
+        return profile.sedit ? Settings.shared.font : profile.editorFont
+    }
+
+    /// フォントパネルが開いてたら、表示をこのウィンドウに合わせる（ずれたままやと、次の変更が違うフォントに掛かる）
+    private func syncFontPanel() {
         if NSFontPanel.sharedFontPanelExists {
-            NSFontManager.shared.setSelectedFont(profile.editorFont, isMultiple: false)
+            NSFontManager.shared.setSelectedFont(fontPanelFont, isMultiple: false)
         }
     }
 
-    /// フォントパネルでフォントを選んだとき: このウィンドウの等幅フォントは切る（選んだフォントで出すため）
+    /// フォントパネルでフォントを選んだとき: このウィンドウの等幅フォントは切る（選んだフォントで出すため）。
+    /// SEDIT 風のときはいじらん（等幅フォントは見えてないので）
     func turnOffMonospace() {
+        guard profile.monospace, !profile.sedit else { return }
         changeProfile { $0.monospace = false }
     }
 
@@ -1611,6 +1653,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
     // Windows 2000 風のタイトルバーは、アクティブかどうかで色が変わり、最大化でボタンの絵が変わる
     func windowDidBecomeKey(_ notification: Notification) {
         titleBar.refresh()
+        syncFontPanel()   // フォントパネルを開いたままほかのウィンドウに移ったとき
     }
 
     func windowDidResignKey(_ notification: Notification) {

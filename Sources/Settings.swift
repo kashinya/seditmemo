@@ -54,6 +54,7 @@ final class Settings {
         static let showColumnRuler = "ShowColumnRuler"
         static let showCharacterCount = "ShowCharacterCount"
         static let zoomPercent = "ZoomPercent"
+        static let hideMacMenuBar = "HideMacMenuBar"   // 前の版の［Mac のメニューバーと Dock を隠す］（もう無い）
         static let defaultProfile = "DefaultViewProfile"
         static let fileProfiles = "FileViewProfiles"
         static let recentFiles = "RecentFiles"
@@ -82,6 +83,28 @@ final class Settings {
             Key.backgroundImageOpacity: 0.15,
             Key.classicUI: false,
         ])
+        migrateLegacyProfile()
+    }
+
+    /// 前の版の、全部のウィンドウに効いてた見た目の設定（SeditMode・ShowLineNumbers など）があれば、
+    /// 一回だけ初期設定の見た目に移して、古いのは消す（あとで初期設定が読めんでも、古い設定に戻らんように）
+    private func migrateLegacyProfile() {
+        let legacyKeys = [Key.seditMode, Key.showLineNumbers, Key.showColumnRuler, Key.wordWrap, Key.lineSpacing,
+                          Key.zoomPercent, Key.showCharacterCount, Key.monospaceMode, Key.hideMacMenuBar]
+        guard legacyKeys.contains(where: { defaults.object(forKey: $0) != nil }) else { return }
+        if defaults.object(forKey: Key.defaultProfile) == nil {
+            var profile = ViewProfile.factory
+            profile.sedit = defaults.object(forKey: Key.seditMode) as? Bool ?? profile.sedit
+            profile.showLineNumbers = defaults.object(forKey: Key.showLineNumbers) as? Bool ?? profile.showLineNumbers
+            profile.showColumnRuler = defaults.object(forKey: Key.showColumnRuler) as? Bool ?? profile.showColumnRuler
+            profile.wordWrap = defaults.object(forKey: Key.wordWrap) as? Bool ?? profile.wordWrap
+            profile.lineSpacingPercent = defaults.object(forKey: Key.lineSpacing) as? Int ?? profile.lineSpacingPercent
+            profile.zoomPercent = defaults.object(forKey: Key.zoomPercent) as? Int ?? profile.zoomPercent
+            profile.showCharacterCount = defaults.object(forKey: Key.showCharacterCount) as? Bool ?? profile.showCharacterCount
+            profile.monospace = defaults.object(forKey: Key.monospaceMode) as? Bool ?? profile.monospace
+            defaultProfile = profile.sanitized
+        }
+        legacyKeys.forEach { defaults.removeObject(forKey: $0) }
     }
 
     /// アプリに埋め込んだ PC-9800 フォントの PostScript 名
@@ -138,24 +161,14 @@ final class Settings {
     /// ［書式］→［行間］の選べる倍率（%）
     static let lineSpacingChoices = [100, 110, 115, 120, 130, 150, 200]
 
-    /// 初期設定の見た目（新しいウィンドウと、まだ見た目を覚えてないファイル）。
-    /// 前の版の、全部のウィンドウに効いてた設定（SeditMode・ShowLineNumbers など）があれば、それを最初の初期設定にする
+    /// 初期設定の見た目（新しいウィンドウと、まだ見た目を覚えてないファイル）。読めなかったら最初の状態
     var defaultProfile: ViewProfile {
         get {
             if let data = defaults.data(forKey: Key.defaultProfile),
                let profile = try? JSONDecoder().decode(ViewProfile.self, from: data) {
                 return profile.sanitized
             }
-            var profile = ViewProfile.factory
-            profile.sedit = defaults.object(forKey: Key.seditMode) as? Bool ?? profile.sedit
-            profile.showLineNumbers = defaults.object(forKey: Key.showLineNumbers) as? Bool ?? profile.showLineNumbers
-            profile.showColumnRuler = defaults.object(forKey: Key.showColumnRuler) as? Bool ?? profile.showColumnRuler
-            profile.wordWrap = defaults.object(forKey: Key.wordWrap) as? Bool ?? profile.wordWrap
-            profile.lineSpacingPercent = defaults.object(forKey: Key.lineSpacing) as? Int ?? profile.lineSpacingPercent
-            profile.zoomPercent = defaults.object(forKey: Key.zoomPercent) as? Int ?? profile.zoomPercent
-            profile.showCharacterCount = defaults.object(forKey: Key.showCharacterCount) as? Bool ?? profile.showCharacterCount
-            profile.monospace = defaults.object(forKey: Key.monospaceMode) as? Bool ?? profile.monospace
-            return profile.sanitized
+            return .factory
         }
         set {
             if let data = try? JSONEncoder().encode(newValue) {
@@ -263,5 +276,21 @@ struct ViewProfile: Codable, Equatable {
     /// 本文のフォント（SEDIT 風か等幅フォントなら PC-9800、でなければフォントパネルで選んだもの）
     var editorFont: NSFont {
         return sedit || monospace ? Settings.monospaceFont : Settings.shared.font
+    }
+}
+
+extension ViewProfile {
+    /// 覚えてない項目は最初の状態で読む（あとで項目を足しても、覚えてた見た目が全部読めなくならんように）
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let factory = ViewProfile.factory
+        sedit = try container.decodeIfPresent(Bool.self, forKey: .sedit) ?? factory.sedit
+        showLineNumbers = try container.decodeIfPresent(Bool.self, forKey: .showLineNumbers) ?? factory.showLineNumbers
+        showColumnRuler = try container.decodeIfPresent(Bool.self, forKey: .showColumnRuler) ?? factory.showColumnRuler
+        wordWrap = try container.decodeIfPresent(Bool.self, forKey: .wordWrap) ?? factory.wordWrap
+        lineSpacingPercent = try container.decodeIfPresent(Int.self, forKey: .lineSpacingPercent) ?? factory.lineSpacingPercent
+        zoomPercent = try container.decodeIfPresent(Int.self, forKey: .zoomPercent) ?? factory.zoomPercent
+        showCharacterCount = try container.decodeIfPresent(Bool.self, forKey: .showCharacterCount) ?? factory.showCharacterCount
+        monospace = try container.decodeIfPresent(Bool.self, forKey: .monospace) ?? factory.monospace
     }
 }

@@ -379,14 +379,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func showFontPanel(_ sender: Any?) {
         let fontManager = NSFontManager.shared
-        fontManager.setSelectedFont(keyEditor?.profile.editorFont ?? Settings.shared.font, isMultiple: false)
+        fontManager.setSelectedFont(keyEditor?.fontPanelFont ?? Settings.shared.font, isMultiple: false)
         fontManager.orderFrontFontPanel(sender)
     }
 
-    /// フォントパネルで選んだら、それを使う（アプリ全体。前に出てるウィンドウの等幅フォントは切る）
+    /// フォントパネルで選んだら、それを使う（アプリ全体。前に出てるウィンドウの等幅フォントは切る）。
+    /// 前に出てるのが SEDIT 風でも、PC-9800 をアプリ全体のフォントにはせん（メモ帳のときのフォントを元に変える）
     @objc func fontPanelChangedFont(_ sender: Any?) {
         let fontManager = (sender as? NSFontManager) ?? NSFontManager.shared
-        Settings.shared.font = fontManager.convert(keyEditor?.profile.editorFont ?? Settings.shared.font)
+        Settings.shared.font = fontManager.convert(keyEditor?.fontPanelFont ?? Settings.shared.font)
         keyEditor?.turnOffMonospace()
         applyFontToAll()
     }
