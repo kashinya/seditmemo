@@ -39,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                   !controller.textView.hasMarkedText() else {   // 日本語の変換中は F6〜F10 などを IM に渡す
                 return event
             }
-            if Settings.shared.seditMode,
+            if controller.profile.sedit,
                event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
                let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first,
                (NSF1FunctionKey...NSF10FunctionKey).contains(Int(scalar.value)) {
@@ -52,7 +52,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        applyPresentationOptions()
         restoreRecoveredDocuments()
         // 保存してない文書は、ときどき控えを書いておく（落ちたとき用）
         recoveryTimer = Timer.scheduledTimer(withTimeInterval: Recovery.interval, repeats: true) { [weak self] _ in
@@ -128,17 +127,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
-    /// ［表示］→［設定をすべて初期値に戻す…］
+    /// ［表示］→［初期設定を最初の状態に戻す］: 新しいウィンドウの見た目だけを、メモ帳・ルーラーなしなどに戻す。
+    /// ファイルごとに覚えた見た目と、テーマ・背景などはそのまま
+    @objc func resetDefaultProfile(_ sender: Any?) {
+        Settings.shared.defaultProfile = .factory
+    }
+
+    /// ［表示］→［すべての設定を消して最初の状態に戻す…］
     @objc func resetAllSettings(_ sender: Any?) {
         let alert = NSAlert()
-        alert.messageText = "設定をすべて初期値に戻しますか?"
-        alert.informativeText = "テーマ・背景画像・フォント・表示の切り替え・検索のオプション・ファイルごとのウィンドウの位置と大きさなど、"
-            + "このアプリが覚えてることを全部消して、入れたときの状態に戻します。開いてる文書はそのままです。"
-        alert.addButton(withTitle: "初期値に戻す")
+        alert.messageText = "すべての設定を消して、最初の状態に戻しますか?"
+        alert.informativeText = "初期設定の見た目・ファイルごとに覚えた見た目とウィンドウの位置と大きさ・テーマ・背景画像・フォント・"
+            + "検索のオプションなど、このアプリが覚えてることを全部消して、入れたときの状態に戻します。開いてる文書はそのままです。"
+        alert.addButton(withTitle: "最初の状態に戻す")
         alert.addButton(withTitle: "キャンセル").keyEquivalent = "\u{1b}"
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Settings.shared.resetAll()
-        applyPresentationOptions()
         NSApp.appearance = Settings.shared.theme.appearance
         for controller in controllers {
             controller.applyAllSettings()
@@ -274,48 +278,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         open(choice.url, encoding: choice.encoding)
     }
 
-    @objc func toggleWordWrap(_ sender: Any?) {
-        Settings.shared.wordWrap.toggle()
-        for controller in controllers {
-            controller.applyWordWrap()
-        }
-    }
-
     @objc func toggleStatusBar(_ sender: Any?) {
         Settings.shared.showStatusBar.toggle()
         for controller in controllers {
             controller.applyStatusBarVisibility()
         }
-    }
-
-    @objc func toggleMonospaceFont(_ sender: Any?) {
-        Settings.shared.monospaceMode.toggle()
-        applyFontToAll()
-        // フォントパネルが開いてたら表示を合わせる（ずれたままやと、次の変更が違うフォントに掛かる）
-        if NSFontPanel.sharedFontPanelExists {
-            NSFontManager.shared.setSelectedFont(Settings.shared.editorFont, isMultiple: false)
-        }
-    }
-
-    @objc func setLineSpacing(_ sender: Any?) {
-        guard let item = sender as? NSMenuItem, Settings.lineSpacingChoices.contains(item.tag) else { return }
-        Settings.shared.lineSpacingPercent = item.tag
-        applyFontToAll()
-    }
-
-    @objc func toggleLineNumbers(_ sender: Any?) {
-        Settings.shared.showLineNumbers.toggle()
-        controllers.forEach { $0.applyRulers() }
-    }
-
-    @objc func toggleColumnRuler(_ sender: Any?) {
-        Settings.shared.showColumnRuler.toggle()
-        controllers.forEach { $0.applyRulers() }
-    }
-
-    @objc func toggleCharacterCount(_ sender: Any?) {
-        Settings.shared.showCharacterCount.toggle()
-        controllers.forEach { $0.updateStatusNow() }
     }
 
     // MARK: - キーボードマクロ
@@ -378,32 +345,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         alert.runModal()
     }
 
-    @objc func toggleSeditMode(_ sender: Any?) {
-        Settings.shared.seditMode.toggle()
-        for controller in controllers {
-            controller.applySeditMode()
-        }
-    }
-
     @objc func toggleClassicUI(_ sender: Any?) {
         Settings.shared.classicUI.toggle()
-        // 先に Mac のメニューバーと Dock を戻す（ウィンドウを画面に収めるときに本当の大きさで測れるように）
-        applyPresentationOptions()
         for controller in controllers {
             controller.applyClassicUI()
         }
-    }
-
-    @objc func toggleHideMacMenuBar(_ sender: Any?) {
-        Settings.shared.hideMacMenuBar.toggle()
-        applyPresentationOptions()
-    }
-
-    /// Windows 2000 風のときは、このアプリが前にある間だけ Mac のメニューバーを自動で隠す。
-    /// macOS の決まりで、メニューバーを隠すときは Dock も一緒に隠すことになる
-    func applyPresentationOptions() {
-        let settings = Settings.shared
-        NSApp.presentationOptions = settings.classicUI && settings.hideMacMenuBar ? [.autoHideDock, .autoHideMenuBar] : []
     }
 
     @objc func setTheme(_ sender: Any?) {
@@ -433,15 +379,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func showFontPanel(_ sender: Any?) {
         let fontManager = NSFontManager.shared
-        fontManager.setSelectedFont(Settings.shared.editorFont, isMultiple: false)
+        fontManager.setSelectedFont(keyEditor?.profile.editorFont ?? Settings.shared.font, isMultiple: false)
         fontManager.orderFrontFontPanel(sender)
     }
 
-    /// フォントパネルで選んだら、それを使う（等幅フォントモードは切る）
+    /// フォントパネルで選んだら、それを使う（アプリ全体。前に出てるウィンドウの等幅フォントは切る）
     @objc func fontPanelChangedFont(_ sender: Any?) {
         let fontManager = (sender as? NSFontManager) ?? NSFontManager.shared
-        Settings.shared.font = fontManager.convert(Settings.shared.editorFont)
-        Settings.shared.monospaceMode = false
+        Settings.shared.font = fontManager.convert(keyEditor?.profile.editorFont ?? Settings.shared.font)
+        keyEditor?.turnOffMonospace()
         applyFontToAll()
     }
 
@@ -461,28 +407,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(toggleWordWrap(_:)) {
-            menuItem.state = Settings.shared.wordWrap ? .on : .off
-        } else if menuItem.action == #selector(toggleStatusBar(_:)) {
+        // 前に出てるウィンドウが SEDIT 風なら、メモ帳だけの設定（ステータスバー・フォント・テーマ）は効かんので選べんようにする
+        let sedit = keyEditor?.profile.sedit ?? false
+        if menuItem.action == #selector(toggleStatusBar(_:)) {
             menuItem.state = Settings.shared.showStatusBar ? .on : .off
-            return !Settings.shared.seditMode   // SEDIT 風は上の行に出すので
-        } else if menuItem.action == #selector(toggleMonospaceFont(_:)) {
-            menuItem.state = Settings.shared.monospaceMode ? .on : .off
-            return !Settings.shared.seditMode   // SEDIT 風はいつも PC-9800 フォント
+            return !sedit   // SEDIT 風は上の行に出すので
         } else if menuItem.action == #selector(showFontPanel(_:)) {
-            return !Settings.shared.seditMode
+            return !sedit
         } else if menuItem.action == #selector(setTheme(_:)) {
             let isCurrent = EditorTheme.all.indices.contains(menuItem.tag) && EditorTheme.all[menuItem.tag].id == Settings.shared.theme.id
             menuItem.state = isCurrent ? .on : .off
-            return !Settings.shared.seditMode   // SEDIT 風はいつも黒地に白
-        } else if menuItem.action == #selector(setLineSpacing(_:)) {
-            menuItem.state = menuItem.tag == Settings.shared.lineSpacingPercent ? .on : .off
-        } else if menuItem.action == #selector(toggleLineNumbers(_:)) {
-            menuItem.state = Settings.shared.showLineNumbers ? .on : .off
-        } else if menuItem.action == #selector(toggleColumnRuler(_:)) {
-            menuItem.state = Settings.shared.showColumnRuler ? .on : .off
-        } else if menuItem.action == #selector(toggleCharacterCount(_:)) {
-            menuItem.state = Settings.shared.showCharacterCount ? .on : .off
+            return !sedit   // SEDIT 風はいつも黒地に白
         } else if menuItem.action == #selector(toggleMacroRecording(_:)) {
             menuItem.title = MacroRecorder.shared.isRecording ? "記録を終える" : "記録を始める"
             return !MacroRecorder.shared.isPlaying
@@ -493,13 +428,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return MacroRecorder.shared.hasMacro && !MacroRecorder.shared.isRecording
         } else if menuItem.action == #selector(openMacro(_:)) {
             return !MacroRecorder.shared.isRecording
-        } else if menuItem.action == #selector(toggleSeditMode(_:)) {
-            menuItem.state = Settings.shared.seditMode ? .on : .off
         } else if menuItem.action == #selector(toggleClassicUI(_:)) {
             menuItem.state = Settings.shared.classicUI ? .on : .off
-        } else if menuItem.action == #selector(toggleHideMacMenuBar(_:)) {
-            menuItem.state = Settings.shared.hideMacMenuBar ? .on : .off
-            return Settings.shared.classicUI
         }
         return true
     }

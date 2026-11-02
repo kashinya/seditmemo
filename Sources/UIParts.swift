@@ -355,8 +355,8 @@ final class PrintTextView: NSTextView {
         return jobTitleText
     }
 
-    static func make(text: String, title: String, width: CGFloat) -> PrintTextView {
-        let font = Settings.shared.editorFont
+    /// font・lineSpacing: そのウィンドウの見た目（本文のフォントと行間）
+    static func make(text: String, title: String, width: CGFloat, font: NSFont, lineSpacing: CGFloat) -> PrintTextView {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .paragraphStyle: EditorWindowController.paragraphStyle(for: font),
@@ -365,7 +365,7 @@ final class PrintTextView: NSTextView {
         let storage = NSTextStorage(string: text, attributes: attributes)
         let layoutManager = NSLayoutManager()
         let lineHeight = FixedLineHeightDelegate()
-        lineHeight.update(for: font, layoutManager: layoutManager, spacing: Settings.shared.lineSpacing)
+        lineHeight.update(for: font, layoutManager: layoutManager, spacing: lineSpacing)
         layoutManager.delegate = lineHeight
         storage.addLayoutManager(layoutManager)
 

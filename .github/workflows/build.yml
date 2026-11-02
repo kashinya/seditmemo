@@ -157,7 +157,7 @@ jobs:
           }
           shoot sedit ~/Desktop/MEMO.TXT 688x420 "SeditMode -bool YES" "ShowLineNumbers -bool YES" "ShowColumnRuler -bool YES" "WordWrap -bool YES"
           shoot mac ~/Desktop/MEMO.TXT 560x380 "MonospaceMode -bool YES" "ShowLineNumbers -bool YES" "WordWrap -bool YES"
-          shoot win2000 ~/Desktop/README.TXT 520x300 "ClassicUI -bool YES" "HideMacMenuBar -bool NO" "WordWrap -bool YES"
+          shoot win2000 ~/Desktop/README.TXT 520x300 "ClassicUI -bool YES" "WordWrap -bool YES"
           # 折り返しで右が切れんか（長い行・行番号・桁ルーラー）
           shoot wrap-mac ~/Desktop/LONG.TXT 500x300 "WordWrap -bool YES" "ShowLineNumbers -bool YES" "ShowColumnRuler -bool YES"
           shoot wrap-sedit ~/Desktop/LONG.TXT 500x300 "SeditMode -bool YES" "WordWrap -bool YES" "ShowLineNumbers -bool YES" "ShowColumnRuler -bool YES"
