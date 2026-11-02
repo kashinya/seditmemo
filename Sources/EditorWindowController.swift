@@ -48,8 +48,15 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
     private(set) var lineEnding: LineEnding = .lf
     private(set) var isDirty = false
 
-    /// ズーム（%）。新しいウィンドウは、最後に変えたズームで開く
-    private var zoomPercent = Settings.shared.zoomPercent
+    /// このウィンドウの見た目（ファイルごとに覚える。新しいウィンドウは初期設定の見た目）
+    private(set) var profile = Settings.shared.defaultProfile
+    /// 見た目を自分で変えたか（開いたファイルの見た目を覚えてたときも）。変えてないファイルは保存しても覚えず、初期設定に従う
+    private var hasOwnProfile = false
+    /// ズーム（%）は見た目の一部
+    private var zoomPercent: Int {
+        get { return profile.zoomPercent }
+        set { profile.zoomPercent = newValue }
+    }
     /// 落ちたとき用の控え（Recovery）の名前と、控えを書いたときの revision（控えが無ければ nil）
     private var recoveryID = UUID()
     private var recoveredRevision: Int?
@@ -203,54 +210,51 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
     /// ［表示］→［行番号］［桁ルーラー］を出す／隠す
     /// 本文のまわりの余白。SEDIT 風は上は 0、左は行番号を出してないときだけ半角 4 桁ぶん（行番号を出してるときくらい）あける
     private func updateTextInsets() {
-        let settings = Settings.shared
         let inset: NSSize
-        if settings.seditMode {
-            inset = NSSize(width: settings.showLineNumbers ? 0 : Sedit.editorMargin, height: 0)
+        if profile.sedit {
+            inset = NSSize(width: profile.showLineNumbers ? 0 : Sedit.editorMargin, height: 0)
         } else {
             inset = NSSize(width: 4, height: 4)
         }
         if textView.textContainerInset != inset {
             textView.textContainerInset = inset
         }
-        let padding: CGFloat = settings.seditMode ? 0 : 2
+        let padding: CGFloat = profile.sedit ? 0 : 2
         if textContainer.lineFragmentPadding != padding {
             textContainer.lineFragmentPadding = padding
         }
     }
 
     func applyRulers() {
-        let settings = Settings.shared
-        if settings.seditMode {
+        if profile.sedit {
             layoutContent()   // 上の行の下のすき間は、桁ルーラーを出すかどうかで変わる
         }
         updateTextInsets()
         updateSeditWrapWidth()
-        scrollView.hasVerticalRuler = settings.showLineNumbers
-        scrollView.hasHorizontalRuler = settings.showColumnRuler
-        scrollView.rulersVisible = settings.showLineNumbers || settings.showColumnRuler
+        scrollView.hasVerticalRuler = profile.showLineNumbers
+        scrollView.hasHorizontalRuler = profile.showColumnRuler
+        scrollView.rulersVisible = profile.showLineNumbers || profile.showColumnRuler
         refreshRulers()
     }
 
     private func refreshRulers() {
-        let settings = Settings.shared
-        if settings.showLineNumbers {
+        if profile.showLineNumbers {
             lineRuler.updateThickness()
             lineRuler.needsDisplay = true
         }
-        if settings.showColumnRuler {
+        if profile.showColumnRuler {
             columnRuler.updateThickness()
             columnRuler.needsDisplay = true
         }
     }
 
     var rulerStyle: RulerStyle {
-        if Settings.shared.seditMode { return .sedit }
+        if profile.sedit { return .sedit }
         return Settings.shared.classicUI ? .classic : .mac
     }
 
     var rulerFont: NSFont {
-        return (textAttributes[.font] as? NSFont) ?? Settings.shared.editorFont
+        return (textAttributes[.font] as? NSFont) ?? profile.editorFont
     }
 
     /// ルーラーの地。本文が半透明でもルーラーは透けさせない
@@ -320,7 +324,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self else { return }
             self.characterCountScheduled = false
-            guard Settings.shared.showCharacterCount, self.characterCountCache == nil else { return }
+            guard self.profile.showCharacterCount, self.characterCountCache == nil else { return }
             self.countCharactersNow()
             self.updateStatusNow()
         }
@@ -365,10 +369,10 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
     }
 
     func applyFont() {
-        let base = Settings.shared.editorFont
+        let base = profile.editorFont
         let size = max(2, base.pointSize * CGFloat(zoomPercent) / 100)
         let font = NSFont(descriptor: base.fontDescriptor, size: size) ?? base
-        lineHeightDelegate.update(for: font, layoutManager: layoutManager, spacing: Settings.shared.lineSpacing)
+        lineHeightDelegate.update(for: font, layoutManager: layoutManager, spacing: profile.lineSpacing)
         scrollView.verticalLineScroll = max(1, lineHeightDelegate.lineHeight)   // スクロールバーの矢印で 1 行ずつ
         layoutManager.pixelFontDotSize = font.fontName == Settings.pc98FontName ? font.pointSize / 16 : nil
         textView.needsDisplay = true
@@ -388,7 +392,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         if seditLine.scale != seditScale || functionBar.scale != seditScale {
             seditLine.scale = seditScale
             functionBar.scale = seditScale
-            if Settings.shared.seditMode {
+            if profile.sedit {
                 layoutContent()
             }
         }
@@ -402,12 +406,12 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
     func applyWordWrap() {
         let size = visibleTextSize
         let classic = Settings.shared.classicUI
-        if Settings.shared.wordWrap {
+        if profile.wordWrap {
             scrollView.hasHorizontalScroller = false
             textView.isHorizontallyResizable = false
             textView.autoresizingMask = [.width]
             // SEDIT 風は右に ↓ の 1 桁を残すので、幅は自分で合わせる
-            textContainer.widthTracksTextView = !Settings.shared.seditMode
+            textContainer.widthTracksTextView = !profile.sedit
             textView.setFrameSize(NSSize(width: size.width, height: textView.frame.height))
             let inset = textView.textContainerInset.width * 2
             textContainer.size = NSSize(width: max(0, size.width - inset), height: EditorWindowController.unlimited)
@@ -435,7 +439,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
     /// 本文が短くてもウィンドウいっぱいをクリックできるようにしておく
     private func updateTextViewMinSize() {
         let size = visibleTextSize
-        let wrap = Settings.shared.wordWrap
+        let wrap = profile.wordWrap
         textView.minSize = NSSize(width: wrap ? 0 : size.width, height: size.height)
         var frameSize = textView.frame.size
         var changed = false
@@ -459,7 +463,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
 
     /// SEDIT 風で折り返すとき: 右端に改行の ↓ が入る 1 桁を残して折り返す
     private func updateSeditWrapWidth() {
-        guard Settings.shared.seditMode, Settings.shared.wordWrap else { return }
+        guard profile.sedit, profile.wordWrap else { return }
         let font = textView.typingAttributes[.font] as? NSFont
         let reserve = ceil((font?.pointSize ?? 16) / 2)
         // すき間は左だけ（右は ↓ の reserve）
@@ -519,7 +523,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         }
         updateWindowAppearance()
         scrollView.hasVerticalScroller = !classic
-        scrollView.hasHorizontalScroller = !classic && !Settings.shared.wordWrap
+        scrollView.hasHorizontalScroller = !classic && !profile.wordWrap
         statusBar.classic = classic
         refreshRulers()
         layoutContent()
@@ -529,12 +533,12 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
 
     /// SEDIT 風のときは SEDIT の色（黒地に白）、そうでなければ［テーマ］
     private var activeTheme: EditorTheme {
-        return Settings.shared.seditMode ? Sedit.theme : Settings.shared.theme
+        return profile.sedit ? Sedit.theme : Settings.shared.theme
     }
 
     /// SEDIT 風にする／戻す
     func applySeditMode() {
-        let sedit = Settings.shared.seditMode
+        let sedit = profile.sedit
         for view in [seditLine, functionBar] as [NSView] {
             if !sedit {
                 view.removeFromSuperview()
@@ -553,7 +557,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
     /// SEDIT 風を Mac の枠で出すときは、スクロールバーなども暗くする
     private func updateWindowAppearance() {
         let settings = Settings.shared
-        window.appearance = settings.seditMode && !settings.classicUI ? NSAppearance(named: .darkAqua) : nil
+        window.appearance = profile.sedit && !settings.classicUI ? NSAppearance(named: .darkAqua) : nil
     }
 
     /// テーマ（文字・背景・選択・カーソルの色）と背景の不透明度・画像を反映する
@@ -590,7 +594,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
     /// 本文・ステータスバー・（Windows 2000 風のときは）タイトルバー・メニューバー・スクロールバーを並べる。上が y = 0
     private func layoutContent() {
         let bounds = rootView.bounds
-        let sedit = Settings.shared.seditMode
+        let sedit = profile.sedit
         let showStatus = Settings.shared.showStatusBar && !sedit   // SEDIT 風は上の行に出す
         let statusHeight = showStatus ? StatusBarView.height : 0
         statusBar.isHidden = !showStatus
@@ -608,7 +612,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         /// 本文の背景はすき間にも敷くので、テーマの色・半透明・背景画像はそのままつながる
         func scrollFrame(in text: NSRect) -> NSRect {
             guard sedit else { return text }
-            let top = Settings.shared.showColumnRuler ? 0 : max(1, (2 * seditScale).rounded())
+            let top = profile.showColumnRuler ? 0 : max(1, (2 * seditScale).rounded())
             return NSRect(x: text.minX, y: text.minY + top, width: text.width,
                           height: max(0, text.height - top - Sedit.editorMargin))
         }
@@ -634,7 +638,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         rootView.clientRect = client
         let inner = carveSeditRows(client.insetBy(dx: 2, dy: 2))
         let barSize = Classic.scrollBarSize
-        let showHorizontal = !Settings.shared.wordWrap
+        let showHorizontal = !profile.wordWrap
         let text = NSRect(x: inner.minX, y: inner.minY, width: max(0, inner.width - barSize),
                           height: max(0, inner.height - (showHorizontal ? barSize : 0)))
         scrollView.frame = scrollFrame(in: text)
@@ -654,7 +658,8 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         let clamped = max(EditorWindowController.minZoom, min(EditorWindowController.maxZoom, value))
         guard clamped != zoomPercent else { return }
         zoomPercent = clamped
-        Settings.shared.zoomPercent = clamped   // 次に開くウィンドウ（次の起動も）このズームで
+        hasOwnProfile = true
+        rememberProfile()
         applyFont()
         updateStatusNow()
     }
@@ -713,6 +718,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
             appendedLog = true
         }
 
+        applyProfile(for: url)   // 先に見た目を合わせる（中身を入れてからやと、文字の飾りを 2 回付け直す）
         replaceAllText(with: text)
         discardRecovery()   // 前の文書（保存せずに捨てた）の控えを残さん
         RecentFiles.note(url)
@@ -856,6 +862,9 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         updateTitle()
         updateStatusNow()
         rememberFrame()
+        if hasOwnProfile {
+            rememberProfile()
+        }
         RecentFiles.note(url)
         writeRecoveryIfNeeded()   // 保存したので控えを消す
         return true
@@ -930,8 +939,10 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
 
     /// 前回落ちたときの控えから中身を戻す。保存してない状態（*）にして、元のファイルがあればそこへ上書き保存できる
     func restore(_ record: Recovery.Record, id: UUID) {
+        let url = record.path.map { URL(fileURLWithPath: $0) }
+        applyProfile(for: url)
         replaceAllText(with: record.text)
-        fileURL = record.path.map { URL(fileURLWithPath: $0) }
+        fileURL = url
         encoding = TextEncoding(rawValue: record.encoding) ?? .utf8
         lineEnding = LineEnding(rawValue: record.lineEnding) ?? .lf
         recoveryID = id          // 控えはこのウィンドウが引き継ぐ（閉じたら消える）
@@ -946,9 +957,10 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         }
     }
 
-    /// ［表示］→［設定をすべて初期値に戻す…］のあと: 全部を設定に合わせ直す。ズームも 100% に戻す
+    /// ［表示］→［すべての設定を消して最初の状態に戻す…］のあと: 全部を設定に合わせ直す。見た目も最初の状態に
     func applyAllSettings() {
-        zoomPercent = Settings.shared.zoomPercent
+        profile = Settings.shared.defaultProfile
+        hasOwnProfile = false
         applyTheme()
         applyWordWrap()
         // 枠の付け外しは、変わるときだけ（変わらんのに呼ぶと、Mac の全画面を抜けてしまう）
@@ -1039,7 +1051,8 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         printInfo.dictionary().setObject(NSNumber(value: true), forKey: NSString(string: "NSPrintHeaderAndFooter"))
 
         let width = max(72, printInfo.paperSize.width - printInfo.leftMargin - printInfo.rightMargin)
-        let view = PrintTextView.make(text: textView.string, title: displayName, width: width)
+        let view = PrintTextView.make(text: textView.string, title: displayName, width: width,
+                                      font: profile.editorFont, lineSpacing: profile.lineSpacing)
         let operation = NSPrintOperation(view: view, printInfo: printInfo)
         operation.jobTitle = displayName
         operation.showsPrintPanel = true
@@ -1194,6 +1207,112 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         menu.popUp(positioning: nil, at: NSPoint(x: rect.minX, y: rect.minY), in: functionBar)
     }
 
+    // MARK: - 見た目（このウィンドウだけ。ファイルごとに覚える）
+
+    /// 見た目を替えて、変わったところだけ当て直す（行番号を出すだけで本文を組み直したり、カーソルへ飛んだりせんように）。
+    /// remember: 自分で変えた見た目。開いた・保存したファイルなら、そのファイルの見た目として覚える
+    private func setProfile(_ newProfile: ViewProfile, remember: Bool) {
+        let old = profile
+        profile = newProfile.sanitized
+        guard profile != old else { return }
+        if profile.sedit != old.sedit {
+            applySeditMode()       // 色・フォント・ズーム・行間・折り返し・上の行と下の欄
+            applyRulers()
+            applyStatusBarVisibility()
+        } else {
+            if profile.monospace != old.monospace || profile.lineSpacingPercent != old.lineSpacingPercent
+                || profile.zoomPercent != old.zoomPercent {
+                applyFont()
+            }
+            if profile.wordWrap != old.wordWrap {
+                applyWordWrap()
+            }
+            if profile.showLineNumbers != old.showLineNumbers || profile.showColumnRuler != old.showColumnRuler {
+                applyRulers()
+            }
+            updateStatusNow()
+        }
+        if remember {
+            hasOwnProfile = true
+            rememberProfile()
+        }
+    }
+
+    /// ファイルを開いたとき・控えから戻したとき: そのファイルの覚えてた見た目、なければ初期設定の見た目
+    private func applyProfile(for url: URL?) {
+        let stored = url.flatMap { FileProfiles.profile(for: $0) }
+        hasOwnProfile = stored != nil
+        setProfile(stored ?? Settings.shared.defaultProfile, remember: false)
+    }
+
+    /// 開いた・保存したファイルなら、今の見た目を覚える（次にそのファイルを開いたらこの見た目）
+    private func rememberProfile() {
+        guard let url = fileURL, !isClosed else { return }
+        FileProfiles.remember(profile, for: url)
+    }
+
+    private func changeProfile(_ change: (inout ViewProfile) -> Void) {
+        var newProfile = profile
+        change(&newProfile)
+        setProfile(newProfile, remember: true)
+    }
+
+    @objc func toggleSeditMode(_ sender: Any?) {
+        changeProfile { $0.sedit.toggle() }
+        syncFontPanel()
+    }
+
+    @objc func toggleWordWrap(_ sender: Any?) {
+        changeProfile { $0.wordWrap.toggle() }
+    }
+
+    @objc func toggleMonospaceFont(_ sender: Any?) {
+        changeProfile { $0.monospace.toggle() }
+        syncFontPanel()
+    }
+
+    /// フォントパネルに出すフォント。パネルの変更はこれを元に掛けて、アプリ全体のフォントにする。
+    /// SEDIT 風はいつも PC-9800 なので、メモ帳のときのフォント（パネルで変えたら、ほかのメモ帳のウィンドウに効く）
+    var fontPanelFont: NSFont {
+        return profile.sedit ? Settings.shared.font : profile.editorFont
+    }
+
+    /// フォントパネルが開いてたら、表示をこのウィンドウに合わせる（ずれたままやと、次の変更が違うフォントに掛かる）
+    private func syncFontPanel() {
+        if NSFontPanel.sharedFontPanelExists {
+            NSFontManager.shared.setSelectedFont(fontPanelFont, isMultiple: false)
+        }
+    }
+
+    /// フォントパネルでフォントを選んだとき: このウィンドウの等幅フォントは切る（選んだフォントで出すため）。
+    /// SEDIT 風のときはいじらん（等幅フォントは見えてないので）
+    func turnOffMonospace() {
+        guard profile.monospace, !profile.sedit else { return }
+        changeProfile { $0.monospace = false }
+    }
+
+    @objc func setLineSpacing(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem, Settings.lineSpacingChoices.contains(item.tag) else { return }
+        changeProfile { $0.lineSpacingPercent = item.tag }
+    }
+
+    @objc func toggleLineNumbers(_ sender: Any?) {
+        changeProfile { $0.showLineNumbers.toggle() }
+    }
+
+    @objc func toggleColumnRuler(_ sender: Any?) {
+        changeProfile { $0.showColumnRuler.toggle() }
+    }
+
+    @objc func toggleCharacterCount(_ sender: Any?) {
+        changeProfile { $0.showCharacterCount.toggle() }
+    }
+
+    /// ［表示］→［この見た目を初期設定にする］: 新しいウィンドウと、まだ見た目を覚えてないファイルは、この見た目で開く
+    @objc func makeProfileDefault(_ sender: Any?) {
+        Settings.shared.defaultProfile = profile
+    }
+
     // MARK: - メニューの処理（表示）
 
     @objc func editorZoomIn(_ sender: Any?) {
@@ -1221,6 +1340,23 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
             return zoomPercent < EditorWindowController.maxZoom
         case #selector(editorZoomOut(_:)):
             return zoomPercent > EditorWindowController.minZoom
+        case #selector(toggleSeditMode(_:)):
+            menuItem.state = profile.sedit ? .on : .off
+        case #selector(toggleWordWrap(_:)):
+            menuItem.state = profile.wordWrap ? .on : .off
+        case #selector(toggleMonospaceFont(_:)):
+            menuItem.state = profile.monospace ? .on : .off
+            return !profile.sedit   // SEDIT 風はいつも PC-9800 フォント
+        case #selector(setLineSpacing(_:)):
+            menuItem.state = menuItem.tag == profile.lineSpacingPercent ? .on : .off
+        case #selector(toggleLineNumbers(_:)):
+            menuItem.state = profile.showLineNumbers ? .on : .off
+        case #selector(toggleColumnRuler(_:)):
+            menuItem.state = profile.showColumnRuler ? .on : .off
+        case #selector(toggleCharacterCount(_:)):
+            menuItem.state = profile.showCharacterCount ? .on : .off
+        case #selector(makeProfileDefault(_:)):
+            return profile != Settings.shared.defaultProfile
         default:
             break
         }
@@ -1412,20 +1548,20 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
     func updateStatusNow() {
         refreshRulers()
         let settings = Settings.shared
-        if settings.seditMode {
+        if profile.sedit {
             let path = fileURL.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? "無題"
             seditLine.update(path: path, line: lineNumber(at: caretLocation), totalLines: totalLineCount,
                              column: columnNumber(at: caretLocation),
-                             characters: settings.showCharacterCount ? characterCountText(unit: "") : nil,
+                             characters: profile.showCharacterCount ? characterCountText(unit: "") : nil,
                              isRecording: MacroRecorder.shared.isRecording,
                              encoding: encoding, lineEnding: lineEnding)
             return
         }
         guard settings.showStatusBar else { return }
-        statusBar.showsCharacterCount = settings.showCharacterCount
+        statusBar.showsCharacterCount = profile.showCharacterCount
         statusBar.update(line: lineNumber(at: caretLocation),
                          column: columnNumber(at: caretLocation),
-                         characters: settings.showCharacterCount ? characterCountText(unit: " 文字") : "",
+                         characters: profile.showCharacterCount ? characterCountText(unit: " 文字") : "",
                          zoom: zoomPercent,
                          lineEnding: lineEnding,
                          encoding: encoding)
@@ -1517,6 +1653,7 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
     // Windows 2000 風のタイトルバーは、アクティブかどうかで色が変わり、最大化でボタンの絵が変わる
     func windowDidBecomeKey(_ notification: Notification) {
         titleBar.refresh()
+        syncFontPanel()   // フォントパネルを開いたままほかのウィンドウに移ったとき
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -1539,8 +1676,6 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         guard classicAfterFullScreenExit else { return }
         classicAfterFullScreenExit = false
         applyClassicUI()
-        // 全画面を抜けると、全画面に入る前の presentationOptions に戻されるので掛け直す
-        AppDelegate.shared.applyPresentationOptions()
     }
 
     func windowDidFailToExitFullScreen(_ window: NSWindow) {

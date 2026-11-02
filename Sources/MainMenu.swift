@@ -82,14 +82,14 @@ enum MainMenu {
 
         // 書式
         let formatMenu = NSMenu(title: "書式")
-        formatMenu.addItem(item("右端で折り返す", #selector(AppDelegate.toggleWordWrap(_:))))
+        formatMenu.addItem(item("右端で折り返す", #selector(EditorWindowController.toggleWordWrap(_:))))
         formatMenu.addItem(item(Settings.hasPC98Font ? "等幅フォント（PC-9800）" : "等幅フォント",
-                                #selector(AppDelegate.toggleMonospaceFont(_:))))
+                                #selector(EditorWindowController.toggleMonospaceFont(_:))))
         let lineSpacingItem = NSMenuItem(title: "行間", action: nil, keyEquivalent: "")
         let lineSpacingMenu = NSMenu(title: "行間")
         for percent in Settings.lineSpacingChoices {
             let title = percent == 100 ? "標準" : "\(String(format: "%g", Double(percent) / 100)) 倍"
-            lineSpacingMenu.addItem(item(title, #selector(AppDelegate.setLineSpacing(_:)), tag: percent))
+            lineSpacingMenu.addItem(item(title, #selector(EditorWindowController.setLineSpacing(_:)), tag: percent))
         }
         lineSpacingItem.submenu = lineSpacingMenu
         formatMenu.addItem(lineSpacingItem)
@@ -122,9 +122,9 @@ enum MainMenu {
         zoomItem.submenu = zoomMenu
         viewMenu.addItem(zoomItem)
         viewMenu.addItem(item("ステータス バー", #selector(AppDelegate.toggleStatusBar(_:))))
-        viewMenu.addItem(item("文字数", #selector(AppDelegate.toggleCharacterCount(_:))))
-        viewMenu.addItem(item("行番号", #selector(AppDelegate.toggleLineNumbers(_:))))
-        viewMenu.addItem(item("桁ルーラー", #selector(AppDelegate.toggleColumnRuler(_:))))
+        viewMenu.addItem(item("文字数", #selector(EditorWindowController.toggleCharacterCount(_:))))
+        viewMenu.addItem(item("行番号", #selector(EditorWindowController.toggleLineNumbers(_:))))
+        viewMenu.addItem(item("桁ルーラー", #selector(EditorWindowController.toggleColumnRuler(_:))))
         let themeItem = NSMenuItem(title: "テーマ", action: nil, keyEquivalent: "")
         let themeMenu = NSMenu(title: "テーマ")
         for (index, theme) in EditorTheme.all.enumerated() {
@@ -139,11 +139,13 @@ enum MainMenu {
         viewMenu.addItem(themeItem)
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(item("Windows 2000 風", #selector(AppDelegate.toggleClassicUI(_:))))
-        viewMenu.addItem(item("Mac のメニューバーと Dock を隠す", #selector(AppDelegate.toggleHideMacMenuBar(_:))))
         viewMenu.addItem(NSMenuItem.separator())
-        viewMenu.addItem(item("SEDIT 風", #selector(AppDelegate.toggleSeditMode(_:))))
+        viewMenu.addItem(item("SEDIT 風", #selector(EditorWindowController.toggleSeditMode(_:))))
         viewMenu.addItem(NSMenuItem.separator())
-        viewMenu.addItem(item("設定をすべて初期値に戻す…", #selector(AppDelegate.resetAllSettings(_:))))
+        // 見た目（SEDIT 風・行番号・桁ルーラー・折り返し・行間・ズーム・文字数・等幅フォント）はファイルごと
+        viewMenu.addItem(item("この見た目を初期設定にする", #selector(EditorWindowController.makeProfileDefault(_:))))
+        viewMenu.addItem(item("初期設定を最初の状態に戻す", #selector(AppDelegate.resetDefaultProfile(_:))))
+        viewMenu.addItem(item("すべての設定を消して最初の状態に戻す…", #selector(AppDelegate.resetAllSettings(_:))))
         add(viewMenu, to: mainMenu)
 
         // マクロ（キーボードマクロ）

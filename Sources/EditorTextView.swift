@@ -105,7 +105,7 @@ final class EditorTextView: NSTextView {
         let visible = window.map { NSStringFromRect($0.convertToScreen(convert(visibleRect, to: nil))) } ?? "-"
         return "marked=\(NSStringFromRange(markedRange())) selected=\(NSStringFromRange(selectedRange()))"
             + " visible=\(visible) window=\(window.map { NSStringFromRect($0.frame) } ?? "-")"
-            + " mouse=\(NSStringFromPoint(NSEvent.mouseLocation)) wrap=\(Settings.shared.wordWrap) sedit=\(Settings.shared.seditMode)"
+            + " mouse=\(NSStringFromPoint(NSEvent.mouseLocation)) wrap=\(editor?.profile.wordWrap ?? false) sedit=\(editor?.profile.sedit ?? false)"
     }
 
     // MARK: - SEDIT 風の印

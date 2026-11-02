@@ -48,13 +48,15 @@ final class Settings {
         static let backgroundOpacity = "BackgroundOpacity"
         static let backgroundImageOpacity = "BackgroundImageOpacity"
         static let classicUI = "ClassicUI"
-        static let hideMacMenuBar = "HideMacMenuBar"
         static let lineSpacing = "LineSpacingPercent"
         static let seditMode = "SeditMode"
         static let showLineNumbers = "ShowLineNumbers"
         static let showColumnRuler = "ShowColumnRuler"
         static let showCharacterCount = "ShowCharacterCount"
         static let zoomPercent = "ZoomPercent"
+        static let hideMacMenuBar = "HideMacMenuBar"   // 前の版の［Mac のメニューバーと Dock を隠す］（もう無い）
+        static let defaultProfile = "DefaultViewProfile"
+        static let fileProfiles = "FileViewProfiles"
         static let recentFiles = "RecentFiles"
         static let imeLog = "IMELog"
     }
@@ -73,23 +75,36 @@ final class Settings {
 
     private init() {
         defaults.register(defaults: [
-            Key.wordWrap: false,
             Key.statusBar: true,
             Key.matchCase: false,
             Key.wrapAround: false,
             Key.tabWidth: 8,
-            Key.monospaceMode: false,
             Key.backgroundOpacity: 1.0,
             Key.backgroundImageOpacity: 0.15,
             Key.classicUI: false,
-            Key.hideMacMenuBar: true,
-            Key.lineSpacing: 100,
-            Key.seditMode: false,
-            Key.showLineNumbers: false,
-            Key.showColumnRuler: false,
-            Key.showCharacterCount: false,
-            Key.zoomPercent: 100,
         ])
+        migrateLegacyProfile()
+    }
+
+    /// 前の版の、全部のウィンドウに効いてた見た目の設定（SeditMode・ShowLineNumbers など）があれば、
+    /// 一回だけ初期設定の見た目に移して、古いのは消す（あとで初期設定が読めんでも、古い設定に戻らんように）
+    private func migrateLegacyProfile() {
+        let legacyKeys = [Key.seditMode, Key.showLineNumbers, Key.showColumnRuler, Key.wordWrap, Key.lineSpacing,
+                          Key.zoomPercent, Key.showCharacterCount, Key.monospaceMode, Key.hideMacMenuBar]
+        guard legacyKeys.contains(where: { defaults.object(forKey: $0) != nil }) else { return }
+        if defaults.object(forKey: Key.defaultProfile) == nil {
+            var profile = ViewProfile.factory
+            profile.sedit = defaults.object(forKey: Key.seditMode) as? Bool ?? profile.sedit
+            profile.showLineNumbers = defaults.object(forKey: Key.showLineNumbers) as? Bool ?? profile.showLineNumbers
+            profile.showColumnRuler = defaults.object(forKey: Key.showColumnRuler) as? Bool ?? profile.showColumnRuler
+            profile.wordWrap = defaults.object(forKey: Key.wordWrap) as? Bool ?? profile.wordWrap
+            profile.lineSpacingPercent = defaults.object(forKey: Key.lineSpacing) as? Int ?? profile.lineSpacingPercent
+            profile.zoomPercent = defaults.object(forKey: Key.zoomPercent) as? Int ?? profile.zoomPercent
+            profile.showCharacterCount = defaults.object(forKey: Key.showCharacterCount) as? Bool ?? profile.showCharacterCount
+            profile.monospace = defaults.object(forKey: Key.monospaceMode) as? Bool ?? profile.monospace
+            defaultProfile = profile.sanitized
+        }
+        legacyKeys.forEach { defaults.removeObject(forKey: $0) }
     }
 
     /// アプリに埋め込んだ PC-9800 フォントの PostScript 名
@@ -143,14 +158,23 @@ final class Settings {
         }
     }
 
-    /// 本文に使うフォント。等幅フォントモードのときはフォントパネルで選んだのより優先
-    /// ズーム（%）。最後に変えたズームを、次に開くウィンドウに使う
-    var zoomPercent: Int {
+    /// ［書式］→［行間］の選べる倍率（%）
+    static let lineSpacingChoices = [100, 110, 115, 120, 130, 150, 200]
+
+    /// 初期設定の見た目（新しいウィンドウと、まだ見た目を覚えてないファイル）。読めなかったら最初の状態
+    var defaultProfile: ViewProfile {
         get {
-            let value = defaults.integer(forKey: Key.zoomPercent)
-            return max(EditorWindowController.minZoom, min(EditorWindowController.maxZoom, value == 0 ? 100 : value))
+            if let data = defaults.data(forKey: Key.defaultProfile),
+               let profile = try? JSONDecoder().decode(ViewProfile.self, from: data) {
+                return profile.sanitized
+            }
+            return .factory
         }
-        set { defaults.set(newValue, forKey: Key.zoomPercent) }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                defaults.set(data, forKey: Key.defaultProfile)
+            }
+        }
     }
 
     /// ［ファイル］→［最近使ったファイル］（新しい順のパス、10 個まで）
@@ -162,39 +186,6 @@ final class Settings {
     /// 隠し設定: 変換候補の窓の位置を調べるため、IME とのやりとりを ~/Library/Logs/local.memocho.sedit-ime.log に書く
     var imeLog: Bool {
         return defaults.bool(forKey: Key.imeLog)
-    }
-
-    var editorFont: NSFont {
-        return monospaceMode || seditMode ? Settings.monospaceFont : font
-    }
-
-    /// ［表示］→［行番号］
-    var showLineNumbers: Bool {
-        get { return defaults.bool(forKey: Key.showLineNumbers) }
-        set { defaults.set(newValue, forKey: Key.showLineNumbers) }
-    }
-
-    /// ［表示］→［桁ルーラー］
-    var showColumnRuler: Bool {
-        get { return defaults.bool(forKey: Key.showColumnRuler) }
-        set { defaults.set(newValue, forKey: Key.showColumnRuler) }
-    }
-
-    /// ［表示］→［文字数］
-    var showCharacterCount: Bool {
-        get { return defaults.bool(forKey: Key.showCharacterCount) }
-        set { defaults.set(newValue, forKey: Key.showCharacterCount) }
-    }
-
-    /// ［表示］→［SEDIT 風］
-    var seditMode: Bool {
-        get { return defaults.bool(forKey: Key.seditMode) }
-        set { defaults.set(newValue, forKey: Key.seditMode) }
-    }
-
-    var monospaceMode: Bool {
-        get { return defaults.bool(forKey: Key.monospaceMode) }
-        set { defaults.set(newValue, forKey: Key.monospaceMode) }
     }
 
     var theme: EditorTheme {
@@ -229,29 +220,6 @@ final class Settings {
         set { defaults.set(newValue, forKey: Key.classicUI) }
     }
 
-    /// Windows 2000 風のとき、このアプリを使ってる間は Mac のメニューバー（と Dock）を自動で隠す
-    var hideMacMenuBar: Bool {
-        get { return defaults.bool(forKey: Key.hideMacMenuBar) }
-        set { defaults.set(newValue, forKey: Key.hideMacMenuBar) }
-    }
-
-    /// ［書式］→［行間］で選べる倍率（%）
-    static let lineSpacingChoices = [100, 110, 115, 120, 130, 150, 200]
-
-    var lineSpacingPercent: Int {
-        get { return min(300, max(100, defaults.integer(forKey: Key.lineSpacing))) }
-        set { defaults.set(newValue, forKey: Key.lineSpacing) }
-    }
-
-    var lineSpacing: CGFloat {
-        return CGFloat(lineSpacingPercent) / 100
-    }
-
-    var wordWrap: Bool {
-        get { return defaults.bool(forKey: Key.wordWrap) }
-        set { defaults.set(newValue, forKey: Key.wordWrap) }
-    }
-
     var showStatusBar: Bool {
         get { return defaults.bool(forKey: Key.statusBar) }
         set { defaults.set(newValue, forKey: Key.statusBar) }
@@ -271,5 +239,58 @@ final class Settings {
     var tabWidth: Int {
         let width = defaults.integer(forKey: Key.tabWidth)
         return (1...32).contains(width) ? width : 8
+    }
+}
+
+/// 見た目。ファイルごとに覚えて、新しいウィンドウは初期設定（Settings.defaultProfile）の見た目で開く。
+/// Windows 2000 風の枠・テーマ・背景・ステータスバーなどはアプリ全体の設定（Settings）
+struct ViewProfile: Codable, Equatable {
+    /// SEDIT 風か（でなければメモ帳）
+    var sedit = false
+    var showLineNumbers = false
+    var showColumnRuler = false
+    var wordWrap = false
+    var lineSpacingPercent = 100
+    var zoomPercent = 100
+    var showCharacterCount = false
+    /// 等幅フォント（PC-9800）。SEDIT 風はいつも等幅
+    var monospace = false
+
+    /// 最初の状態（メモ帳・ルーラーなし・折り返しなし・行間標準・ズーム 100%）
+    static let factory = ViewProfile()
+
+    /// 読み込んだ値を、使える範囲に収める
+    var sanitized: ViewProfile {
+        var profile = self
+        if !Settings.lineSpacingChoices.contains(profile.lineSpacingPercent) {
+            profile.lineSpacingPercent = 100
+        }
+        profile.zoomPercent = max(EditorWindowController.minZoom, min(EditorWindowController.maxZoom, profile.zoomPercent))
+        return profile
+    }
+
+    var lineSpacing: CGFloat {
+        return CGFloat(lineSpacingPercent) / 100
+    }
+
+    /// 本文のフォント（SEDIT 風か等幅フォントなら PC-9800、でなければフォントパネルで選んだもの）
+    var editorFont: NSFont {
+        return sedit || monospace ? Settings.monospaceFont : Settings.shared.font
+    }
+}
+
+extension ViewProfile {
+    /// 覚えてない項目は最初の状態で読む（あとで項目を足しても、覚えてた見た目が全部読めなくならんように）
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let factory = ViewProfile.factory
+        sedit = try container.decodeIfPresent(Bool.self, forKey: .sedit) ?? factory.sedit
+        showLineNumbers = try container.decodeIfPresent(Bool.self, forKey: .showLineNumbers) ?? factory.showLineNumbers
+        showColumnRuler = try container.decodeIfPresent(Bool.self, forKey: .showColumnRuler) ?? factory.showColumnRuler
+        wordWrap = try container.decodeIfPresent(Bool.self, forKey: .wordWrap) ?? factory.wordWrap
+        lineSpacingPercent = try container.decodeIfPresent(Int.self, forKey: .lineSpacingPercent) ?? factory.lineSpacingPercent
+        zoomPercent = try container.decodeIfPresent(Int.self, forKey: .zoomPercent) ?? factory.zoomPercent
+        showCharacterCount = try container.decodeIfPresent(Bool.self, forKey: .showCharacterCount) ?? factory.showCharacterCount
+        monospace = try container.decodeIfPresent(Bool.self, forKey: .monospace) ?? factory.monospace
     }
 }

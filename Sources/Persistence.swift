@@ -36,6 +36,42 @@ enum WindowFrames {
     }
 }
 
+/// ファイルごとの見た目（ViewProfile）。見た目を変えたとき・保存したときに覚えて、次にそのファイルを開いたときに戻す。
+/// 覚えてないファイルは初期設定の見た目で開く
+enum FileProfiles {
+    private static let key = "FileViewProfiles"            // [ファイルのパス: ViewProfile の JSON]
+    private static let orderKey = "FileViewProfilesOrder"  // 覚えた順のパス。多すぎたら古いのから忘れる
+    private static let limit = 300
+
+    static func profile(for url: URL) -> ViewProfile? {
+        guard let profiles = UserDefaults.standard.dictionary(forKey: key) as? [String: Data],
+              let data = profiles[path(of: url)],
+              let profile = try? JSONDecoder().decode(ViewProfile.self, from: data) else { return nil }
+        return profile.sanitized
+    }
+
+    static func remember(_ profile: ViewProfile, for url: URL) {
+        guard let data = try? JSONEncoder().encode(profile) else { return }
+        let defaults = UserDefaults.standard
+        let path = path(of: url)
+        var profiles = (defaults.dictionary(forKey: key) as? [String: Data]) ?? [:]
+        var order = defaults.stringArray(forKey: orderKey) ?? []
+        if profiles[path] == data, order.last == path { return }
+        profiles[path] = data
+        order.removeAll { $0 == path }
+        order.append(path)
+        while order.count > limit {
+            profiles.removeValue(forKey: order.removeFirst())
+        }
+        defaults.set(profiles, forKey: key)
+        defaults.set(order, forKey: orderKey)
+    }
+
+    private static func path(of url: URL) -> String {
+        return url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+}
+
 /// ［ファイル］→［最近使ったファイル］。開いた・保存したファイルを新しい順に 10 個まで（Settings.recentFiles）
 final class RecentFiles: NSObject, NSMenuDelegate {
     static let shared = RecentFiles()
