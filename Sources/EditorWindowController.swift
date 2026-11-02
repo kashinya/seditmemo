@@ -1308,9 +1308,24 @@ final class EditorWindowController: NSObject, NSWindowDelegate, NSTextViewDelega
         changeProfile { $0.showCharacterCount.toggle() }
     }
 
-    /// ［表示］→［この見た目を初期設定にする］: 新しいウィンドウと、まだ見た目を覚えてないファイルは、この見た目で開く
+    /// 初期設定の見た目が変わったとき: 見た目を自分で変えてないウィンドウは、新しい初期設定に合わせる（覚えはせん）
+    func followDefaultProfile() {
+        guard !hasOwnProfile else { return }
+        setProfile(Settings.shared.defaultProfile, remember: false)
+    }
+
+    /// ［表示］→［この見た目を初期設定にする…］: 新しいウィンドウと、見た目を変えてないファイルは、この見た目で開く。
+    /// うっかり選んでも替わらんように、確かめてから
     @objc func makeProfileDefault(_ sender: Any?) {
-        Settings.shared.defaultProfile = profile
+        let alert = NSAlert()
+        alert.messageText = "この見た目を初期設定にしますか?"
+        alert.informativeText = "この見た目: \(profile.summary)\n\n"
+            + "新しいウィンドウと、見た目を変えてないファイルが、この見た目で開くようになります。"
+            + "開いてるウィンドウも、見た目を変えてないものはこの見た目になります。"
+        alert.addButton(withTitle: "初期設定にする")
+        alert.addButton(withTitle: "キャンセル").keyEquivalent = "\u{1b}"
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        AppDelegate.shared.setDefaultProfile(profile)
     }
 
     // MARK: - メニューの処理（表示）

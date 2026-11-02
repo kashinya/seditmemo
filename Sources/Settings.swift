@@ -273,6 +273,19 @@ struct ViewProfile: Codable, Equatable {
         return CGFloat(lineSpacingPercent) / 100
     }
 
+    /// 確認の画面に出す、見た目の中身（例: SEDIT 風・行番号・桁ルーラー・ズーム 150%）
+    var summary: String {
+        var parts = [sedit ? "SEDIT 風" : "メモ帳"]
+        if showLineNumbers { parts.append("行番号") }
+        if showColumnRuler { parts.append("桁ルーラー") }
+        if wordWrap { parts.append("折り返し") }
+        if monospace && !sedit { parts.append("等幅フォント") }
+        if lineSpacingPercent != 100 { parts.append("行間 \(String(format: "%g", Double(lineSpacingPercent) / 100)) 倍") }
+        if zoomPercent != 100 { parts.append("ズーム \(zoomPercent)%") }
+        if showCharacterCount { parts.append("文字数") }
+        return parts.joined(separator: "・")
+    }
+
     /// 本文のフォント（SEDIT 風か等幅フォントなら PC-9800、でなければフォントパネルで選んだもの）
     var editorFont: NSFont {
         return sedit || monospace ? Settings.monospaceFont : Settings.shared.font
