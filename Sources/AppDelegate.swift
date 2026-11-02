@@ -127,10 +127,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
-    /// ［表示］→［初期設定を最初の状態に戻す］: 新しいウィンドウの見た目だけを、メモ帳・ルーラーなしなどに戻す。
+    /// ［表示］→［初期設定を最初の状態に戻す…］: 初期設定の見た目だけを、メモ帳・ルーラーなしなどに戻す（確かめてから）。
     /// ファイルごとに覚えた見た目と、テーマ・背景などはそのまま
     @objc func resetDefaultProfile(_ sender: Any?) {
-        Settings.shared.defaultProfile = .factory
+        let alert = NSAlert()
+        alert.messageText = "初期設定の見た目を最初の状態に戻しますか?"
+        alert.informativeText = "今の初期設定: \(Settings.shared.defaultProfile.summary)\n\n"
+            + "新しいウィンドウと、見た目を変えてないファイルが、ふつうのメモ帳（ルーラーなし・折り返しなし・行間標準・ズーム 100%）"
+            + "で開くようになります。開いてるウィンドウも、見た目を変えてないものは戻ります。\n\n"
+            + "自分で見た目を変えたウィンドウと、ファイルごとに覚えた見た目はそのままです。"
+        alert.addButton(withTitle: "最初の状態に戻す")
+        alert.addButton(withTitle: "キャンセル").keyEquivalent = "\u{1b}"
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        setDefaultProfile(.factory)
+    }
+
+    /// 初期設定の見た目を替えて、開いてるウィンドウのうち見た目を変えてないものを合わせる
+    func setDefaultProfile(_ profile: ViewProfile) {
+        Settings.shared.defaultProfile = profile
+        for controller in controllers {
+            controller.followDefaultProfile()
+        }
     }
 
     /// ［表示］→［すべての設定を消して最初の状態に戻す…］
@@ -431,6 +448,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return !MacroRecorder.shared.isRecording
         } else if menuItem.action == #selector(toggleClassicUI(_:)) {
             menuItem.state = Settings.shared.classicUI ? .on : .off
+        } else if menuItem.action == #selector(resetDefaultProfile(_:)) {
+            return Settings.shared.defaultProfile != .factory   // もう最初の状態なら戻すものがない
         }
         return true
     }

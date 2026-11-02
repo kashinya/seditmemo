@@ -143,8 +143,8 @@ enum MainMenu {
         viewMenu.addItem(item("SEDIT 風", #selector(EditorWindowController.toggleSeditMode(_:))))
         viewMenu.addItem(NSMenuItem.separator())
         // 見た目（SEDIT 風・行番号・桁ルーラー・折り返し・行間・ズーム・文字数・等幅フォント）はファイルごと
-        viewMenu.addItem(item("この見た目を初期設定にする", #selector(EditorWindowController.makeProfileDefault(_:))))
-        viewMenu.addItem(item("初期設定を最初の状態に戻す", #selector(AppDelegate.resetDefaultProfile(_:))))
+        viewMenu.addItem(item("この見た目を初期設定にする…", #selector(EditorWindowController.makeProfileDefault(_:))))
+        viewMenu.addItem(item("初期設定を最初の状態に戻す…", #selector(AppDelegate.resetDefaultProfile(_:))))
         viewMenu.addItem(item("すべての設定を消して最初の状態に戻す…", #selector(AppDelegate.resetAllSettings(_:))))
         add(viewMenu, to: mainMenu)
 
