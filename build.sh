@@ -6,6 +6,15 @@
 #   SWIFT_OPT=-Osize ./build.sh … 速さより大きさ優先で最適化（ふつうは -O）
 #   NO_STRIP=1 ./build.sh       … 関数名などの記号を残す（ふつうは落として 3 割小さくする）
 # 要るもの: Xcode のコマンドラインツール（xcode-select --install）
+#
+# ほかの Mac に渡すとき（「開発元が未確認」と出んように。Apple Developer Program の登録が要る）:
+#   NOTARIZE=1 ./build.sh … Developer ID で署名して Apple の公証に出し、通ったしるしをアプリに貼る（数分かかる）
+#   先に 1 回だけ:
+#     1. キーチェーンに「Developer ID Application」の証明書を入れる（Xcode → 設定 → アカウント → 証明書を管理 → ＋）
+#     2. xcrun notarytool store-credentials memocho-notary --apple-id <Apple ID> --team-id <チーム ID>
+#        （パスワードを聞かれたら、account.apple.com で作ったアプリ用パスワード。キーチェーンに覚えさせる）
+#   SIGN_IDENTITY="Developer ID Application: …" で証明書を選べる（ふつうはキーチェーンの最初の Developer ID Application）。
+#   NOTARY_PROFILE=… は 2. で付けた名前（ふつうは memocho-notary）
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -230,7 +239,33 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
-codesign --force --sign - "$APP"
+if [ -n "${NOTARIZE:-}" ]; then
+  IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"$/\1/p' | head -n 1 || true)}"
+  if [ -z "$IDENTITY" ]; then
+    echo "NOTARIZE=1 には、キーチェーンに「Developer ID Application」の証明書が要る（Xcode → 設定 → アカウント → 証明書を管理 → ＋）" >&2
+    exit 1
+  fi
+  NOTARY_PROFILE="${NOTARY_PROFILE:-memocho-notary}"
+  echo "==> 署名: ${IDENTITY}"
+  # 公証には、ハードンドランタイム（--options runtime）と時刻の証明（--timestamp）が要る
+  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+  NOTARY_ZIP="$BUILD_DIR/notarize.zip"
+  NOTARY_LOG="$BUILD_DIR/notarize.log"
+  rm -f "$NOTARY_ZIP"
+  ditto -c -k --keepParent "$APP" "$NOTARY_ZIP"
+  echo "==> Apple の公証に出す（数分かかる）"
+  xcrun notarytool submit "$NOTARY_ZIP" --keychain-profile "$NOTARY_PROFILE" --wait 2>&1 | tee "$NOTARY_LOG" || true
+  rm -f "$NOTARY_ZIP"
+  if ! grep -q "status: Accepted" "$NOTARY_LOG"; then
+    echo "公証が通らんかった。理由は: xcrun notarytool log <上の id> --keychain-profile ${NOTARY_PROFILE}" >&2
+    exit 1
+  fi
+  # 通ったしるしをアプリに貼る（ネットにつながってない Mac でも、未確認と出んように）
+  xcrun stapler staple "$APP"
+  spctl --assess --type execute --verbose=2 "$APP"
+else
+  codesign --force --sign - "$APP"   # 自分の Mac で使うだけなら、その場の署名で足りる
+fi
 echo "$BUILD_NUMBER" > "$BUILD_NUMBER_FILE"   # できたときだけ数える
 echo "==> できた: ${APP}（Ver ${VERSION}）"
 
